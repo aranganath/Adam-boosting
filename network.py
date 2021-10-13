@@ -24,7 +24,7 @@ images, labels = dataiter.next()
 print(images.shape)
 print(labels.shape)
 
-# plt.imshow(images[0].numpy().squeeze(), cmap='gray_r');
+# plt.imshow(images[0].numpy().squeeze(), cmap='gray_r')
 
 
 input_size = 784
