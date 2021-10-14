@@ -59,9 +59,12 @@ def adam(params: List[Tensor],
          amsgrad: bool,
          beta1: float,
          beta2: float,
+         beta3: float,
+         beta4: float,
          lr: float,
          weight_decay: float,
-         eps: float):
+         eps: float,
+         condition:callable):
     r"""Functional API that performs Adam algorithm computation.
 
     See :class:`~torch.optim.Adam` for details.
@@ -80,9 +83,21 @@ def adam(params: List[Tensor],
         if weight_decay != 0:
             grad = grad.add(param, alpha=weight_decay)
 
+        # Evaluate the function here
+        # If the change in function is greater using the moment, choose the moment
+        # Else choose the gradient
+
+        from pdb import set_trace
+        set_trace()
         # Decay the first and second moment running average coefficient
-        exp_avg.mul_(beta1).add_(grad, alpha=1 - beta1)
-        exp_avg_sq.mul_(beta2).addcmul_(grad, grad, value=1 - beta2)
+        if condition:
+            exp_avg.mul_(beta1).add_(grad, alpha=beta2)
+            exp_avg_sq.mul_(beta3).addcmul_(grad, grad, value=beta4)
+        else:
+            exp_avg.mul_(beta2).add_(grad, alpha=beta1)
+            exp_avg_sq.mul_(beta4).addcmul_(grad, grad, value=beta3)
+
+        
         if amsgrad:
             # Maintains the maximum of all 2nd moment running avg. till now
             torch.maximum(max_exp_avg_sqs[i], exp_avg_sq, out=max_exp_avg_sqs[i])
@@ -92,7 +107,6 @@ def adam(params: List[Tensor],
             denom = (exp_avg_sq.sqrt() / math.sqrt(bias_correction2)).add_(eps)
 
         step_size = lr / bias_correction1
-
         param.addcdiv_(exp_avg, denom, value=-step_size)
 
 
@@ -123,6 +137,10 @@ def adamw(params: List[Tensor],
 
         bias_correction1 = 1 - beta1 ** step
         bias_correction2 = 1 - beta2 ** step
+        # set param and get loss for different directions
+        # If first step, then just use the gradient.
+
+
 
         # Decay the first and second moment running average coefficient
         exp_avg.mul_(beta1).add_(grad, alpha=1 - beta1)
