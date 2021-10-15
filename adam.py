@@ -31,7 +31,7 @@ class Adam(Optimizer):
         https://openreview.net/forum?id=ryQu7f-RZ
     """
 
-    def __init__(self, params, lr=1e-3, betas=(0.4,0.5,0.4,0.5), eps=1e-8,
+    def __init__(self, params, lr=1e-3, betas=(0.1,0.9,0.001,0.999), eps=1e-8,
                  weight_decay=0, amsgrad=False):
         if not 0.0 <= lr:
             raise ValueError("Invalid learning rate: {}".format(lr))
@@ -58,12 +58,9 @@ class Adam(Optimizer):
 
     def _add_grad(self, step_size, update):
         offset = 0
-        for p in self._params:
-            numel = p.numel()
+        for p,upd in zip(self._params, update):
             # view as to avoid deprecated pointwise semantics
-            p.add_(update[offset:offset + numel].view_as(p), alpha=step_size)
-            offset += numel
-        assert offset == self._numel()
+            p.add_(upd.view_as(p), alpha=step_size)
 
     def _clone_param(self):
         return [p.clone(memory_format=torch.contiguous_format) for p in self._params]
@@ -75,9 +72,8 @@ class Adam(Optimizer):
     def _directional_evaluate(self, closure, x, t, d):
         self._add_grad(t, d)
         loss = float(closure())
-        flat_grad = self._gather_flat_grad()
         self._set_param(x)
-        return loss, flat_grad
+        return loss
 
     @torch.no_grad()
     def step(self, closure=None):
@@ -107,7 +103,7 @@ class Adam(Optimizer):
                 if p.grad is not None:
                     params_with_grad.append(p)
                     if p.grad.is_sparse:
-                        raise RuntimeError('Adam does not support sparse gradients, please consider SparseAdam instead')
+                        raise RuntimeError('Adam boost does not support sparse gradients, please consider SparseAdam instead')
                     grads.append(p.grad)
 
                     state = self.state[p]
@@ -122,6 +118,21 @@ class Adam(Optimizer):
                             # Maintains max of all exp. moving avg. of sq. grad. values
                             state['max_exp_avg_sq'] = torch.zeros_like(p, memory_format=torch.preserve_format)
 
+                    self._params = p
+                    x = self._clone_param()
+                    d = state['exp_avg']
+
+                    loss_exp = self._directional_evaluate(closure, x, 1, d)
+                    d = state['exp_avg_sq']
+                    loss_g = self._directional_evaluate(closure, x, 1, d)
+                    # from pdb import set_trace
+                    # set_trace()
+                    if loss_exp < loss_g:
+                        condition = True
+
+                    else:
+                        condition = False
+
                     exp_avgs.append(state['exp_avg'])
                     exp_avg_sqs.append(state['exp_avg_sq'])
 
@@ -130,18 +141,14 @@ class Adam(Optimizer):
 
                     # update the steps for each param group update
 
-                    from pdb import set_trace
+                    # from pdb import set_trace
                     state['step'] += 1
                     # record the step after step update
                     state_steps.append(state['step'])
 
-            x = self._clone_param()
+            
 
-            loss_exp, _ = self._directional_evaluate(x, 1, )
-            loss_g, _ = self._directional_evaluate(x, 1, )
-
-            if loss_exp < loss_g:
-                condition = 
+             
 
             beta1, beta2, beta3, beta4 = group['betas']
             F.adam(params_with_grad,
@@ -158,6 +165,6 @@ class Adam(Optimizer):
                    group['lr'],
                    group['weight_decay'],
                    group['eps'], 
-                   closure)
+                   condition)
 
         return loss
