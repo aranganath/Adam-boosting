@@ -14,7 +14,7 @@ class quasiAdam(Optimizer):
     def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-8,
                  weight_decay=0, amsgrad=False, *, foreach: Optional[bool] = None,
                  maximize: bool = False, capturable: bool = False,
-                 differentiable: bool = False, fused: Optional[bool] = None, quasi='LBFGS'):
+                 differentiable: bool = False, fused: Optional[bool] = None, quasi='LBFGS', q_lr=1e-3):
         if not 0.0 <= lr:
             raise ValueError("Invalid learning rate: {}".format(lr))
         if not 0.0 <= eps:
@@ -29,7 +29,7 @@ class quasiAdam(Optimizer):
         defaults = dict(lr=lr, betas=betas, eps=eps,
                         weight_decay=weight_decay, amsgrad=amsgrad,
                         maximize=maximize, foreach=foreach, capturable=capturable,
-                        differentiable=differentiable, fused=fused, quasi=quasi, first=True)
+                        differentiable=differentiable, fused=fused, quasi=quasi, first=True, q_lr=q_lr)
         super().__init__(params, defaults)
 
         if fused:
@@ -168,6 +168,7 @@ class quasiAdam(Optimizer):
                 prev_grad=prev_grads,
                 prev_params = prev_params,
                 lr=group['lr'],
+                q_lr=group['q_lr'],
                 weight_decay=group['weight_decay'],
                 eps=group['eps'],
                 maximize=group['maximize'],
@@ -180,8 +181,6 @@ class quasiAdam(Optimizer):
                 found_inf=getattr(self, "found_inf", None),
             )
         self.first = False
-        setattr(self, 'prev_grad', prev_grads)
-        setattr(self, 'prev_params', prev_params)
 
         return loss
 
@@ -272,6 +271,7 @@ def quasiadam(params: List[Tensor],
          beta1: float,
          beta2: float,
          lr: float,
+         q_lr: float,
          weight_decay: float,
          eps: float,
          maximize: bool,
@@ -315,6 +315,7 @@ def quasiadam(params: List[Tensor],
          beta1=beta1,
          beta2=beta2,
          lr=lr,
+         q_lr=q_lr,
          weight_decay=weight_decay,
          eps=eps,
          maximize=maximize,
@@ -340,6 +341,7 @@ def _single_tensor_quasiadam(params: List[Tensor],
                         beta1: float,
                         beta2: float,
                         lr: float,
+                        q_lr: float,
                         weight_decay: float,
                         eps: float,
                         maximize: bool,
@@ -389,21 +391,18 @@ def _single_tensor_quasiadam(params: List[Tensor],
         si = param - prev_params[i]
         yi = grad - prev_grads[i]
         lbfgs = False
-        if not first and si.reshape(-1).dot(yi.reshape(-1)) >0:
+        exp_avg_sq.mul_(beta2).addcmul_(grad, grad.conj(), value=1 - beta2)
+        if not first:
             lbfgs = True
             w = si.reshape(-1).dot(yi.reshape(-1))
             # Now let's compute the entries of the different parts of the matrix
             alpha = yi.reshape(-1).dot(si.reshape(-1))/yi.reshape(-1).dot(yi.reshape(-1))
-            M11 = 1/w + 1/w*(alpha)*yi.dot(yi)*1/w
+            M11 = 1/(w)**2*(w + alpha*yi.reshape(-1).dot(yi.reshape(-1)))
             M12 = -1/w
-            M21 = -1/w
-            value= (si.reshape(-1)**2 *M11 + alpha*M21*yi*si + alpha*M12*si*yi)*grad.reshape(-1)
-            lbfgs_step = value.view_as(si)
+            value= (si.reshape(-1)**2 *M11 + 2*alpha*M12*yi.reshape(-1)*si.reshape(-1))*grad.reshape(-1)
+            lbfgs_step = value.view_as(param)
 
-        else:
-            lbfgs = False
-            exp_avg_sq.mul_(beta2).addcmul_(grad, grad.conj(), value=1 - beta2)
-        print(lbfgs)
+
         prev_params[i].data.copy_(params[i])
         if capturable or differentiable:
             step = step_t
@@ -436,29 +435,34 @@ def _single_tensor_quasiadam(params: List[Tensor],
         else:
             step = _get_value(step_t)
             bias_correction1 = 1 - beta1 ** step
-            if lbfgs:
+            # if lbfgs:
                 
-                step_size = lr
-                param.add_(lbfgs_step, alpha=-step_size)
+            #     step_size = lr
+            #     bias_correction2 = beta2 ** step
+            #     bias_correction2_sqrt = _dispatch_sqrt(bias_correction2)
+            #     denom = lbfgs_step
+            #     param.add_(lbfgs_step*bias_correction2_sqrt, alpha=-step_size)
 
+            # else:
+                
+            bias_correction2 = 1 - beta2 ** step
+            step_size = lr / bias_correction1
+
+            bias_correction2_sqrt = _dispatch_sqrt(bias_correction2)
+
+            if amsgrad:
+                # Maintains the maximum of all 2nd moment running avg. till now
+                torch.maximum(max_exp_avg_sqs[i], exp_avg_sq, out=max_exp_avg_sqs[i])
+                # Use the max. for normalizing running avg. of gradient
+                denom = (max_exp_avg_sqs[i].sqrt() / bias_correction2_sqrt).add_(eps)
             else:
-                
-                bias_correction2 = 1 - beta2 ** step
-
-                step_size = lr / bias_correction1
-
-                bias_correction2_sqrt = _dispatch_sqrt(bias_correction2)
-
-                if amsgrad:
-                    # Maintains the maximum of all 2nd moment running avg. till now
-                    torch.maximum(max_exp_avg_sqs[i], exp_avg_sq, out=max_exp_avg_sqs[i])
-                    # Use the max. for normalizing running avg. of gradient
-                    denom = (max_exp_avg_sqs[i].sqrt() / bias_correction2_sqrt).add_(eps)
+                denom = (exp_avg_sq.sqrt() / bias_correction2_sqrt).add_(eps)
+                if not first:
+                    param.addcdiv_(exp_avg, denom, value=-step_size).add_(lbfgs_step, alpha=-q_lr/bias_correction1)
                 else:
-                    denom = (exp_avg_sq.sqrt() / bias_correction2_sqrt).add_(eps)
                     param.addcdiv_(exp_avg, denom, value=-step_size)
-
-        prev_grads[i].data.copy_(grad[i])
+    
+        prev_grads[i].data.copy_(grad)
 
 
 def _multi_tensor_quasiadam(params: List[Tensor],
