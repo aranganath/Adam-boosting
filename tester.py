@@ -58,7 +58,7 @@ class Net(nn.Module):
 
 net = Net()
 criterion = nn.CrossEntropyLoss()
-optimizer = quasiAdam(net.parameters(), lr=1e-3, q_lr=1e-1)
+optimizer = quasiAdam(net.parameters(), lr=1e-2, q_lr=1e-2)
 
 trainLosses = []
 
@@ -84,14 +84,14 @@ for epoch in range(10):  # loop over the dataset multiple times
         if i % 1 ==0:    # print every 2000 mini-batches
             print(f'[{epoch + 1}, {i + 1:5d}] loss: {running_loss / 1:.3f}')
             
-            trainLosses.append(running_loss)
+            trainLosses.append(running_loss/1)
             running_loss = 0.0
             
 
 
 
 print('Finished Training for ', repr(optimizer))
-filename = './results/quasiAdamWithQLR.pkl'
+filename = './results/quasiAdamWithextraQLR.pkl'
 print('Saved in folder '+filename)
 with open(filename,'wb') as handle:
     pkl.dump(trainLosses, handle)
