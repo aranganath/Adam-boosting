@@ -180,7 +180,6 @@ class quasiAdam(Optimizer):
                 grad_scale=getattr(self, "grad_scale", None),
                 found_inf=getattr(self, "found_inf", None),
             )
-        self.first = False
 
         return loss
 
@@ -300,11 +299,12 @@ def quasiadam(params: List[Tensor],
     if fused and not torch.jit.is_scripting():
         func = _fused_quasiadam
     elif foreach and not torch.jit.is_scripting():
+        set_trace()
         func = _multi_tensor_quasiadam
     else:
         func = _single_tensor_quasiadam
     
-
+    
     func(params,
          grads,
          exp_avgs,
@@ -393,6 +393,7 @@ def _single_tensor_quasiadam(params: List[Tensor],
         exp_avg_sq.mul_(beta2).addcmul_(grad, grad.conj(), value=1 - beta2)
         if not first:
             # Compute the entire l-bfgs step
+            
             w = si.reshape(-1).dot(yi.reshape(-1))
             # Now let's compute the entries of the different parts of the matrix
             alpha = yi.reshape(-1).dot(si.reshape(-1))/yi.reshape(-1).dot(yi.reshape(-1))
@@ -452,7 +453,7 @@ def _single_tensor_quasiadam(params: List[Tensor],
             #     param.add_(lbfgs_step*bias_correction2_sqrt, alpha=-step_size)
 
             # else:
-                
+            
             bias_correction2 = 1 - beta2 ** step
             step_size = lr / bias_correction1
 
@@ -465,11 +466,12 @@ def _single_tensor_quasiadam(params: List[Tensor],
                 denom = (max_exp_avg_sqs[i].sqrt() / bias_correction2_sqrt).add_(eps)
             else:
                 denom = (exp_avg_sq.sqrt() / bias_correction2_sqrt).add_(eps)
-                if not first:
-                    param.addcdiv_(exp_avg, denom, value=-step_size).add_(lbfgs_step, alpha=-q_lr/bias_correction1)
-                else:
-                    param.addcdiv_(exp_avg, denom, value=-step_size)
-    
+            
+            if not first:
+                param.addcdiv_(exp_avg, denom, value=-step_size).add_(lbfgs_step, alpha=-q_lr)
+            else:
+                param.addcdiv_(exp_avg, denom, value=-step_size)
+        
         prev_grads[i].data.copy_(grad)
 
 
