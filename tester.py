@@ -18,7 +18,7 @@ transform = transforms.Compose(
     [transforms.ToTensor(),
      transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
 torch.manual_seed(8722110579710359886)
-batch_size = 2048
+batch_size = 1024
 
 trainset = torchvision.datasets.CIFAR10(root='./data', train=True,
                                         download=True, transform=transform)
@@ -58,11 +58,11 @@ class Net(nn.Module):
 
 net = Net()
 criterion = nn.CrossEntropyLoss()
-optimizer = quasiAdam(net.parameters(), lr=1e-2, q_lr=1e-2)
+optimizer = optim.SGD(net.parameters(), lr=1e-2)
 
 trainLosses = []
 
-
+interval = 10
 for epoch in range(10):  # loop over the dataset multiple times
 
     running_loss = 0.0
@@ -81,17 +81,17 @@ for epoch in range(10):  # loop over the dataset multiple times
 
         # print statistics
         running_loss += loss.item()
-        if i % 1 ==0:    # print every 2000 mini-batches
-            print(f'[{epoch + 1}, {i + 1:5d}] loss: {running_loss / 1:.3f}')
+        if i % interval ==interval-1:    # print every 2000 mini-batches
+            print(f'[{epoch + 1}, {i + 1:5d}] loss: {running_loss / interval:.3f}')
             
-            trainLosses.append(running_loss/1)
+            trainLosses.append(running_loss/interval)
             running_loss = 0.0
             
 
 
 
 print('Finished Training for ', repr(optimizer))
-filename = './results/quasiAdamWithextraQLR.pkl'
+filename = './results/SGD.pkl'
 print('Saved in folder '+filename)
 with open(filename,'wb') as handle:
     pkl.dump(trainLosses, handle)
