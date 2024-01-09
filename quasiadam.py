@@ -392,6 +392,7 @@ def _single_tensor_quasiadam(params: List[Tensor],
         yi = grad - prev_grads[i]
         exp_avg_sq.mul_(beta2).addcmul_(grad, grad.conj(), value=1 - beta2)
         if not first:
+            set_trace()
             # Compute the entire l-bfgs step
             
             w = si.reshape(-1).dot(yi.reshape(-1))
@@ -468,7 +469,7 @@ def _single_tensor_quasiadam(params: List[Tensor],
                 denom = (exp_avg_sq.sqrt() / bias_correction2_sqrt).add_(eps)
             
             if not first:
-                param.addcdiv_(exp_avg, denom, value=-step_size).add_(lbfgs_step, alpha=-q_lr)
+                param.addcdiv_(exp_avg, denom, value=-step_size).add_(lbfgs_step, alpha=-step_size)
             else:
                 param.addcdiv_(exp_avg, denom, value=-step_size)
         
