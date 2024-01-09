@@ -11,7 +11,8 @@ from sklearn.datasets import load_iris
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
 from torch.autograd import Variable
-from quasiadam import quasiAdam
+from ARCLSR1 import ARCLSR1
+# from quasiadam import quasiAdam
 # import tqdm
 import numpy as np
 
@@ -21,7 +22,7 @@ import numpy as np
 
 class Trainer(object):
   """This class is for training and testing the model"""
-  def __init__(self, dataset, optimizer):
+  def __init__(self, dataset, optimizer, gammas):
     super(Trainer, self).__init__()   
     self.batch_size_train = batch_size_train
     self.batch_size_test = batch_size_test
@@ -165,9 +166,9 @@ class Trainer(object):
 
     elif optimizer == 'ARCLSR1':
       # set_trace()
-      self.optimizer = torch.optim.ARCLSR1(params=self.Network.parameters(),
-               gamma1=1, 
-               gamma2=10,
+      self.optimizer = ARCLSR1(params=self.Network.parameters(),
+               gamma1=gammas[0], 
+               gamma2=gammas[1],
                eta1=0.7,
                eta2=0.9, 
                history_size=history,
@@ -176,14 +177,9 @@ class Trainer(object):
     elif  optimizer == 'svrg':
       self.optimizer_snapshot = optim.SVRG_Snapshot(self.model_snapshot.parameters())
       self.optimizer = torch.optim.SVRG_k(self.Network.parameters(), lr = 1e-3, weight_decay=0.0001)
-    elif optimizer == 'quasiAdam':
-      self.optimizer = quasiAdam(self.Network.parameters(), lr=1e-2, q_lr=1e-2, foreach=False)
+    # elif optimizer == 'quasiAdam':
+    #   self.optimizer = quasiAdam(self.Network.parameters(), lr=1e-2, q_lr=1e-2)
     
-    elif optimizer == 'amsgrad':
-      self.optimizer = torch.optim.Adam(params=self.Network.parameters(), amsgrad=True, lr = 1e-2)
-    
-    elif optimizer == 'quasiAdamwams':
-      self.optimizer = quasiAdam(self.Network.parameters(), lr=1e-2, q_lr=1e-2, foreach=False, amsgrad=True)
   
 
     else:
@@ -237,8 +233,8 @@ class Trainer(object):
 
           self.train_counter.append(
             (batch_idx*64) + ((epoch-1)*len(self.train_loader.dataset)))
-          if not os.path.isdir('./results/'):
-            os.mkdir('./results/')
+          if not os.path.isdir('../results/'):
+            os.mkdir('../results/')
           
           self.test()
 
@@ -300,10 +296,10 @@ class Trainer(object):
 
             self.train_counter.append(
               (batch_idx*64) + ((epoch-1)*len(self.train_loader.dataset)))
-            if not os.path.isdir('./results/'):
-              os.mkdir('./results/')
+            if not os.path.isdir('../results/'):
+              os.mkdir('../results/')
 
-            # torch.save(self.Network.state_dict(), './results/'+self.dataset+'_'+self.optim+'_model.pth')
+            # torch.save(self.Network.state_dict(), '../results/'+self.dataset+'_'+self.optim+'_model.pth')
 
             #Test accuracy of prediction here
             self.test()
@@ -346,6 +342,7 @@ class Trainer(object):
 def main():
   global n_epochs, batch_size_train, batch_size_test, learning_rate, momentum, log_interval, history, max_iter, random_seed, device, durations, train_losses, test_losses
   n_epochs = 30
+  batch_size_sizes = [128, 256, 512, 1024]
   batch_size_test = 128
   learning_rate = 0.01
   momentum = 0.5
@@ -363,10 +360,11 @@ def main():
 
 
   device = 'cuda'
-  optimizers = ['quasiAdamwams', 'adam', 'quasiAdam', 'amsgrad']
+  optimizers = ['ARCLSR1']
   histories =[5, 10, 15, 20, 50, 100]
   max_iters = [1, 5, 10, 15, 20, 50, 100]
-  batch_size_sizes = [256, 512, 1024, 2048, 4096, 8192]
+  batch_size_sizes = [256, 512, 1024, 2048]
+  gammas = [(1,10), (1.2,100), (10,100), (10,1000), (100, 1000), (1e2, 1e4)]
 
 
   dataset = 'mnist'
@@ -390,9 +388,10 @@ def main():
             print('Experiment for batch-size', batch_size_train)
             print('Experiment for history-size', history)
             print('Experiment for maxiters', max_iter)
-            trainer = Trainer(dataset=dataset, optimizer=optimizer)
+            trainer = Trainer(dataset=dataset, optimizer=optimizer, gammas = (1,10))
             for epoch in range(1, n_epochs + 1):
               trainer.train(epoch)
+              trainer.test()
 
             with open(dataset+'_'+optimizer+'_train', 'wb') as handle:
               pkl.dump(train_losses, handle, protocol=pkl.HIGHEST_PROTOCOL)
@@ -400,12 +399,12 @@ def main():
             with open(dataset+'_'+optimizer+'_durations', 'wb') as handle:
               pkl.dump(durations, handle, protocol=pkl.HIGHEST_PROTOCOL)
             
-            if not os.path.isdir('./results/'+optimizer+'/'+'history_size'+ str(history)+'/'+'max_iters'+ str(max_iter)+'/'+ str(batch_size_train)+'/Testing_losses/'):
-              os.makedirs('./results/'+optimizer+'/'+'history_size'+ str(history)+'/'+'max_iters'+ str(max_iter)+'/'+ str(batch_size_train)+'/Testing_losses/')
+            if not os.path.isdir('../results/'+optimizer+'/'+'history_size'+ str(history)+'/'+'max_iters'+ str(max_iter)+'/'+ str(batch_size_train)+'/Testing_losses/'):
+              os.makedirs('../results/'+optimizer+'/'+'history_size'+ str(history)+'/'+'max_iters'+ str(max_iter)+'/'+ str(batch_size_train)+'/Testing_losses/')
 
-            with open('./results/'+optimizer+'/'+'history_size'+ str(history)+'/'+'max_iters'+ str(max_iter)+'/'+ str(batch_size_train)+'/Testing_losses/'+dataset+'_'+'test', 'wb') as handle:
+            with open('../results/'+optimizer+'/'+'history_size'+ str(history)+'/'+'max_iters'+ str(max_iter)+'/'+ str(batch_size_train)+'/Testing_losses/'+dataset+'_'+'test', 'wb') as handle:
               pkl.dump(test_losses, handle, protocol=pkl.HIGHEST_PROTOCOL)
-              print('Saved at: '+'./results/'+optimizer+'/'+'history_size'+ str(history)+'/'+'max_iters'+ str(max_iter)+'/'+ str(batch_size_train)+'/Testing_losses/'+dataset+'_'+'test')
+              print('Saved at: '+'../results/'+optimizer+'/'+'history_size'+ str(history)+'/'+'max_iters'+ str(max_iter)+'/'+ str(batch_size_train)+'/Testing_losses/'+dataset+'_'+'test')
 
             train_losses = []
             durations = []
@@ -418,27 +417,20 @@ def main():
         trainer = Trainer(dataset=dataset, optimizer=optimizer)
         for epoch in range(1, n_epochs + 1):
           trainer.train(epoch)
+          trainer.test()
 
         with open(dataset+'_'+optimizer+'_train', 'wb') as handle:
           pkl.dump(train_losses, handle, protocol=pkl.HIGHEST_PROTOCOL)
 
         with open(dataset+'_'+optimizer+'_durations', 'wb') as handle:
           pkl.dump(durations, handle, protocol=pkl.HIGHEST_PROTOCOL)
-
+        quasiNewton = set(['lbfgs', 'sdlbfgs', 'ARCLSR1wl'])
+        if not os.path.isdir('../results/'+optimizer+'/'+ str(batch_size_train)+'/Testing_losses/'):
+          os.makedirs('../results/'+optimizer+'/'+ str(batch_size_train)+'/Testing_losses/')
         
-        if not os.path.isdir('./results/'+optimizer+'/'+ str(batch_size_train)+'/Testing_losses/'):
-          os.makedirs('./results/'+optimizer+'/'+ str(batch_size_train)+'/Testing_losses/')
-        
-        if not os.path.isdir('./results/'+optimizer+'/'+ str(batch_size_train)+'/Training_losses/'):
-          os.makedirs('./results/'+optimizer+'/'+ str(batch_size_train)+'/Training_losses/')
-        
-        with open('./results/'+optimizer+'/'+ str(batch_size_train)+'/Testing_losses/'+dataset+'_'+'test', 'wb') as handle:
+        with open('../results/'+optimizer+'/'+ str(batch_size_train)+'/Testing_losses/'+dataset+'_'+'test', 'wb') as handle:
           pkl.dump(test_losses, handle, protocol=pkl.HIGHEST_PROTOCOL)
-          print('saved testing losses in '+'./results/'+optimizer+'/'+ str(batch_size_train)+'/Testing_losses/'+dataset+'_'+'test')
-        
-        with open('./results/'+optimizer+'/'+ str(batch_size_train)+'/Training_losses/'+dataset+'_'+'test', 'wb') as handle:
-          pkl.dump(test_losses, handle, protocol=pkl.HIGHEST_PROTOCOL)
-          print('saved training losses in '+'./results/'+optimizer+'/'+ str(batch_size_train)+'/Training_losses/'+dataset+'_'+'train')
+          print('saved it in '+'../results/'+optimizer+'/'+ str(batch_size_train)+'/Testing_losses/'+dataset+'_'+'test')
 
         train_losses = []
         durations = []
